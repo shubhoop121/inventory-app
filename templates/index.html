@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zero-SOC Inventory</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">📦 Warehouse Dashboard</h1>
+            <button onclick="document.getElementById('modal').classList.remove('hidden')" 
+                    class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                + Record Transaction
+            </button>
+        </div>
+
+        <div id="alerts-container" class="mb-6 hidden">
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+                <p class="font-bold">Low Stock Alert</p>
+                <p id="alerts-text"></p>
+            </div>
+        </div>
+
+        <div class="bg-white shadow-md rounded-lg overflow-hidden">
+            <table class="min-w-full leading-normal">
+                <thead>
+                    <tr>
+                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-50 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">SKU</th>
+                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-50 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Product</th>
+                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-50 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Location</th>
+                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-50 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
+                    </tr>
+                </thead>
+                <tbody id="inventory-body">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Record Stock Movement</h3>
+            <form id="txn-form">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Product</label>
+                    <select id="product-select" class="w-full border rounded px-3 py-2 bg-white"></select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Location</label>
+                    <select id="location-select" class="w-full border rounded px-3 py-2 bg-white"></select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Type</label>
+                    <div class="flex gap-4">
+                        <label><input type="radio" name="type" value="IN" checked> Incoming (+)</label>
+                        <label><input type="radio" name="type" value="OUT"> Outgoing (-)</label>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Quantity</label>
+                    <input type="number" id="qty-input" class="w-full border rounded px-3 py-2" min="1" required>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="closeModal()" class="bg-gray-300 px-4 py-2 rounded">Cancel</button>
+                    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- LOGIC ---
+        async function loadDashboard() {
+            const res = await fetch('/api/dashboard');
+            const data = await res.json();
+            
+            // 1. Populate Table
+            const tbody = document.getElementById('inventory-body');
+            tbody.innerHTML = '';
+            let alerts = [];
+            
+            data.inventory.forEach(item => {
+                const isLow = item.quantity <= item.threshold;
+                if (isLow) alerts.push(`${item.product} (${item.location}): Only ${item.quantity} left!`);
+                
+                const row = `
+                    <tr>
+                        <td class="px-5 py-5 border-b border-gray-200 bg-white text-sm">${item.sku}</td>
+                        <td class="px-5 py-5 border-b border-gray-200 bg-white text-sm font-medium">${item.product}</td>
+                        <td class="px-5 py-5 border-b border-gray-200 bg-white text-sm">${item.location}</td>
+                        <td class="px-5 py-5 border-b border-gray-200 bg-white text-sm ${isLow ? 'text-red-600 font-bold' : ''}">${item.quantity}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+
+            // 2. Show Alerts
+            const alertBox = document.getElementById('alerts-container');
+            const alertText = document.getElementById('alerts-text');
+            if (alerts.length > 0) {
+                alertBox.classList.remove('hidden');
+                alertText.innerHTML = alerts.join('<br>');
+            } else {
+                alertBox.classList.add('hidden');
+            }
+
+            // 3. Populate Dropdowns (only needs to run once ideally, but fine here for simplicity)
+            populateSelect('product-select', data.products);
+            populateSelect('location-select', data.locations);
+        }
+
+        function populateSelect(id, items) {
+            const select = document.getElementById(id);
+            if (select.options.length > 0) return; // Don't repopulate
+            items.forEach(i => {
+                const opt = document.createElement('option');
+                opt.value = i.id;
+                opt.text = i.name;
+                select.add(opt);
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+            document.getElementById('txn-form').reset();
+        }
+
+        document.getElementById('txn-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const payload = {
+                product_id: document.getElementById('product-select').value,
+                location_id: document.getElementById('location-select').value,
+                type: document.querySelector('input[name="type"]:checked').value,
+                quantity: document.getElementById('qty-input').value
+            };
+
+            const res = await fetch('/api/transaction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                closeModal();
+                loadDashboard();
+            } else {
+                const err = await res.json();
+                alert('Error: ' + err.error);
+            }
+        };
+
+        // Init
+        loadDashboard();
+    </script>
+</body>
+</html>
