@@ -1,1 +1,3 @@
-.inventory.db
+# Ignore the SQLite database used by the app
+data/inventory.db
+
